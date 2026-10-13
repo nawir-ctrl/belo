@@ -10,6 +10,9 @@ import {
   parseLocalTimeToDate,
 } from "@/lib/timezone";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   try {
     const now = new Date();
@@ -52,13 +55,14 @@ export async function GET() {
       },
     });
 
-    // Ambil jadwal hari ini
+    // Ambil semua jadwal aktif
     const allActiveSchedules = await prisma.bellSchedule.findMany({
       where: { isActive: true },
       include: { audioAsset: true },
       orderBy: { time: "asc" },
     });
 
+    // Saring jadwal aktif hari ini
     const todaySchedules = allActiveSchedules.filter((s) => {
       try {
         const days = JSON.parse(s.daysOfWeek);
@@ -96,18 +100,92 @@ export async function GET() {
       const schedMinutes = sH * 60 + sM;
       if (schedMinutes > nowMinutes) {
         nextSchedule = sched;
-        // Hitung selisih detik
         const schedDate = parseLocalTimeToDate(sched.time, currentDateStr, timezone);
         countdownSeconds = Math.max(0, Math.floor((schedDate.getTime() - now.getTime()) / 1000));
         break;
       }
     }
 
-    // Riwayat bel terbaru (10 terakhir)
+    // Jika tidak ada lagi jadwal hari ini, cari jadwal terdekat di hari-hari berikutnya (hingga 7 hari ke depan)
+    let nextUpcomingSchedule: any = null;
+    let nextUpcomingDayLabel: string = "";
+    let nextUpcomingCountdownSec: number = 0;
+
+    if (!nextSchedule) {
+      for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+        const targetDate = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+        const targetDateStr = getDateString(targetDate, timezone);
+        const targetDayOfWeek = getDayOfWeek(targetDate, timezone);
+
+        // Cek hari libur pada tanggal target
+        const isTargetHoliday = await prisma.holiday.findFirst({
+          where: {
+            OR: [
+              { date: targetDateStr },
+              { isRecurringYearly: true, date: { endsWith: targetDateStr.substring(4) } },
+            ],
+          },
+        });
+        if (isTargetHoliday) continue;
+
+        const candidateSchedules = allActiveSchedules.filter((s) => {
+          try {
+            const days = JSON.parse(s.daysOfWeek);
+            if (!Array.isArray(days) || !days.includes(targetDayOfWeek)) return false;
+          } catch {
+            return false;
+          }
+          if (s.startDate && s.startDate > targetDateStr) return false;
+          if (s.endDate && s.endDate < targetDateStr) return false;
+          return true;
+        });
+
+        if (candidateSchedules.length > 0) {
+          nextUpcomingSchedule = candidateSchedules[0];
+          const daysNames = ["", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+          const dayName = daysNames[targetDayOfWeek] || "";
+          nextUpcomingDayLabel = dayOffset === 1 ? `Besok (${dayName})` : `${dayName}, ${targetDateStr}`;
+
+          const targetSchedDate = parseLocalTimeToDate(nextUpcomingSchedule.time, targetDateStr, timezone);
+          nextUpcomingCountdownSec = Math.max(0, Math.floor((targetSchedDate.getTime() - now.getTime()) / 1000));
+          break;
+        }
+      }
+    }
+
+    // Riwayat bel terbaru (8 terakhir)
     const recentExecutions = await prisma.bellExecution.findMany({
       take: 8,
       orderBy: { createdAt: "desc" },
       include: { audioAsset: true },
+    });
+
+    // Bangun daftar agenda lengkap hari ini dengan status eksekusinya
+    const todayAgenda = todaySchedules.map((s) => {
+      const [h, m] = s.time.split(":").map(Number);
+      const isPast = h * 60 + m <= nowMinutes;
+      const execution = todayExecutions.find((e) => e.scheduleId === s.id);
+
+      let status = "AKAN_DATANG";
+      if (execution) {
+        if (execution.status === "PLAYED") status = "SUDAH_BERBUNYI";
+        else if (execution.status === "PLAYING") status = "SEDANG_BERBUNYI";
+        else if (execution.status === "TRIGGERED") status = "SEDANG_DIPICU";
+        else if (execution.status === "SKIPPED") status = "TERLEWAT";
+        else if (execution.status === "FAILED") status = "GAGAL";
+      } else if (isPast) {
+        status = "TERLEWAT";
+      }
+
+      return {
+        id: s.id,
+        name: s.name,
+        time: s.time,
+        bellType: s.bellType,
+        isPast,
+        status,
+        audioName: s.audioAsset?.name || "Lonceng Bawaan",
+      };
     });
 
     return NextResponse.json({
@@ -136,16 +214,17 @@ export async function GET() {
           }
         : null,
       countdownSeconds,
-      todayAgenda: todaySchedules.map((s) => ({
-        id: s.id,
-        name: s.name,
-        time: s.time,
-        bellType: s.bellType,
-        isPast: (() => {
-          const [h, m] = s.time.split(":").map(Number);
-          return h * 60 + m <= nowMinutes;
-        })(),
-      })),
+      nextUpcomingSchedule: nextUpcomingSchedule
+        ? {
+            id: nextUpcomingSchedule.id,
+            name: nextUpcomingSchedule.name,
+            time: nextUpcomingSchedule.time,
+            bellType: nextUpcomingSchedule.bellType,
+            dayLabel: nextUpcomingDayLabel,
+          }
+        : null,
+      nextUpcomingCountdownSec,
+      todayAgenda,
       recentExecutions,
     });
   } catch (err: any) {

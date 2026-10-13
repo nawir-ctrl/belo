@@ -14,27 +14,42 @@ import {
   Pause,
   Edit2,
   Trash2,
-  Music,
   AlertTriangle,
-  Volume2,
   HardDrive,
-  Check,
+  CheckCircle2,
+  Youtube,
+  ExternalLink,
+  Clock,
+  Loader2,
+  Search,
 } from "lucide-react";
 
 export default function AudioPage() {
   const [assets, setAssets] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Tab State: "UPLOAD" atau "YOUTUBE"
+  const [activeTab, setActiveTab] = useState<"UPLOAD" | "YOUTUBE">("UPLOAD");
+
   // Audio Preview Element
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
 
-  // Upload Form State
+  // Upload Form State (Lokal)
   const [isUploading, setIsUploading] = useState(false);
   const [uploadName, setUploadName] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // YouTube Form State
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeName, setYoutubeName] = useState("");
+  const [isCheckingYt, setIsCheckingYt] = useState(false);
+  const [isDownloadingYt, setIsDownloadingYt] = useState(false);
+  const [youtubeInfo, setYoutubeInfo] = useState<any | null>(null);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [youtubeSuccess, setYoutubeSuccess] = useState<string | null>(null);
 
   // Rename State
   const [editingAsset, setEditingAsset] = useState<any | null>(null);
@@ -88,6 +103,7 @@ export default function AudioPage() {
     }
   };
 
+  // --- Handlers Upload File Lokal ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -131,6 +147,75 @@ export default function AudioPage() {
     }
   };
 
+  // --- Handlers Link YouTube ---
+  const handleCheckYouTube = async () => {
+    if (!youtubeUrl.trim()) return;
+    setYoutubeError(null);
+    setYoutubeSuccess(null);
+    setIsCheckingYt(true);
+
+    try {
+      const res = await fetch("/api/audio/youtube/info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: youtubeUrl.trim() }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setYoutubeError(json.error || "Gagal memeriksa video YouTube.");
+        setYoutubeInfo(null);
+      } else {
+        setYoutubeInfo(json.info);
+        if (!youtubeName) {
+          setYoutubeName(json.info.title || "");
+        }
+      }
+    } catch {
+      setYoutubeError("Gagal menghubungi server.");
+    } finally {
+      setIsCheckingYt(false);
+    }
+  };
+
+  const handleDownloadYouTube = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!youtubeUrl.trim()) return;
+
+    setYoutubeError(null);
+    setYoutubeSuccess(null);
+    setIsDownloadingYt(true);
+
+    try {
+      const res = await fetch("/api/audio/youtube/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: youtubeUrl.trim(),
+          displayName: youtubeName.trim() || youtubeInfo?.title || "",
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setYoutubeError(json.error || "Gagal mengunduh audio dari YouTube.");
+      } else {
+        setYoutubeSuccess(
+          `Audio "${json.asset.name}" berhasil diunduh dari YouTube dan disimpan lokal!`
+        );
+        setYoutubeUrl("");
+        setYoutubeName("");
+        setYoutubeInfo(null);
+        fetchAudioList();
+      }
+    } catch {
+      setYoutubeError("Gagal menghubungi server saat mengunduh.");
+    } finally {
+      setIsDownloadingYt(false);
+    }
+  };
+
+  // --- Handlers Edit & Delete ---
   const handleRename = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAsset || !renameValue.trim()) return;
@@ -175,9 +260,18 @@ export default function AudioPage() {
   };
 
   const formatFileSize = (bytes: number) => {
+    if (!bytes) return "0 B";
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const formatSec = (seconds: number | null | undefined) => {
+    if (!seconds) return "-";
+    const s = Math.floor(seconds);
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -185,76 +279,235 @@ export default function AudioPage() {
       <div className="space-y-6 max-w-7xl mx-auto">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            Manajemen Audio MP3
+            Manajemen Sumber Audio
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Unggah, pratinjau nada dering, dan kelola file MP3/WAV persisten di komputer lokal
+            Unggah file audio MP3/WAV lokal atau impor langsung dari link YouTube untuk nada bel sekolah
           </p>
         </div>
 
-        {/* Upload Form Card */}
+        {/* Tab Form Sumber Audio Card */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center space-x-2">
-              <Upload className="h-4 w-4 text-blue-600" />
-              <span>Unggah File Audio Baru</span>
-            </CardTitle>
-            <CardDescription>
-              Format yang didukung: MP3, WAV, OGG. Ukuran maksimum: 50MB per file.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleUpload} className="space-y-4">
-              {uploadError && (
-                <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-center space-x-2">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
-                  <span>{uploadError}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Pilih File Audio
-                  </label>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    required
-                    accept=".mp3,.wav,.ogg,audio/*"
-                    onChange={handleFileChange}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Nama Tampilan Audio
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Nada Masuk Sekolah 2026"
-                    value={uploadName}
-                    onChange={(e) => setUploadName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center space-x-2">
+                  <span>Tambah Sumber Suara Bel Baru</span>
+                </CardTitle>
+                <CardDescription className="mt-0.5">
+                  Pilih apakah sumber audio berasal dari file lokal di komputer atau link YouTube
+                </CardDescription>
               </div>
 
-              <div className="flex justify-end pt-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={!selectedFile || isUploading}
-                  className="gap-2"
+              {/* Tab Switcher */}
+              <div className="inline-flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("UPLOAD")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                    activeTab === "UPLOAD"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm font-semibold"
+                      : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                  }`}
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  <span>{isUploading ? "Mengunggah..." : "Simpan Audio"}</span>
-                </Button>
+                  <span>Unggah File Lokal</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("YOUTUBE")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                    activeTab === "YOUTUBE"
+                      ? "bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm font-semibold"
+                      : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                  }`}
+                >
+                  <Youtube className="h-3.5 w-3.5 text-red-600" />
+                  <span>Link YouTube</span>
+                </button>
               </div>
-            </form>
+            </div>
+          </CardHeader>
+
+          <CardContent className="pt-5">
+            {/* TAB 1: Unggah File Audio Lokal */}
+            {activeTab === "UPLOAD" && (
+              <form onSubmit={handleUpload} className="space-y-4">
+                {uploadError && (
+                  <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-center space-x-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                    <span>{uploadError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Pilih File Audio Lokal
+                    </label>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      required
+                      accept=".mp3,.wav,.ogg,.m4a,audio/*"
+                      onChange={handleFileChange}
+                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Format didukung: MP3, WAV, OGG, M4A (Maks. 50 MB)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Nama Tampilan Audio
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Nada Masuk Sekolah 2026"
+                      value={uploadName}
+                      onChange={(e) => setUploadName(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    disabled={!selectedFile || isUploading}
+                    className="gap-2"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>{isUploading ? "Mengunggah..." : "Simpan Audio"}</span>
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 2: Dari Link YouTube */}
+            {activeTab === "YOUTUBE" && (
+              <form onSubmit={handleDownloadYouTube} className="space-y-4">
+                {youtubeError && (
+                  <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-center space-x-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                    <span>{youtubeError}</span>
+                  </div>
+                )}
+
+                {youtubeSuccess && (
+                  <div className="p-3 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs flex items-center space-x-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span>{youtubeSuccess}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Tautan Video YouTube
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="url"
+                          required
+                          placeholder="https://www.youtube.com/watch?v=... atau https://youtu.be/..."
+                          value={youtubeUrl}
+                          onChange={(e) => {
+                            setYoutubeUrl(e.target.value);
+                            setYoutubeInfo(null);
+                          }}
+                          className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                        />
+                        <Youtube className="h-4 w-4 text-red-500 absolute left-2.5 top-2.5" />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCheckYouTube}
+                        disabled={!youtubeUrl.trim() || isCheckingYt || isDownloadingYt}
+                        className="text-xs shrink-0 gap-1.5"
+                      >
+                        {isCheckingYt ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Search className="h-3.5 w-3.5" />
+                        )}
+                        <span>{isCheckingYt ? "Memeriksa..." : "Cek Video"}</span>
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Audio akan otomatis diekstrak, dikonversi ke MP3, dan disimpan secara permanen di komputer lokal.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Nama Tampilan Audio (Otomatis dari Judul)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Judul video YouTube otomatis atau nama kustom"
+                      value={youtubeName}
+                      onChange={(e) => setYoutubeName(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Pratinjau Info Video YouTube jika berhasil dicek */}
+                {youtubeInfo && (
+                  <div className="p-3 bg-red-50/60 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg flex items-center gap-3">
+                    {youtubeInfo.thumbnailUrl && (
+                      <img
+                        src={youtubeInfo.thumbnailUrl}
+                        alt="Thumbnail"
+                        className="w-20 h-12 object-cover rounded border border-red-200 dark:border-red-800"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0 text-xs">
+                      <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {youtubeInfo.title}
+                      </p>
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500">
+                        {youtubeInfo.uploader && <span>Channel: {youtubeInfo.uploader}</span>}
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {youtubeInfo.durationFormatted}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    disabled={!youtubeUrl.trim() || isDownloadingYt || isCheckingYt}
+                    className="gap-2 bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {isDownloadingYt ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Mengunduh & Menyimpan Audio...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Youtube className="h-3.5 w-3.5 fill-current" />
+                        <span>Unduh & Simpan Audio dari YouTube</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
           </CardContent>
         </Card>
 
@@ -272,7 +525,8 @@ export default function AudioPage() {
                 <tr>
                   <th className="py-3 px-4 w-12 text-center">Putar</th>
                   <th className="py-3 px-4">Nama Tampilan</th>
-                  <th className="py-3 px-4">Nama File Asli</th>
+                  <th className="py-3 px-4">Sumber</th>
+                  <th className="py-3 px-4">Durasi</th>
                   <th className="py-3 px-4">Ukuran</th>
                   <th className="py-3 px-4">Penggunaan Jadwal</th>
                   <th className="py-3 px-4 text-right">Aksi</th>
@@ -282,6 +536,8 @@ export default function AudioPage() {
                 {assets.length > 0 ? (
                   assets.map((asset) => {
                     const isCurrentPlaying = playingId === asset.id;
+                    const isYouTube = asset.sourceType === "YOUTUBE";
+
                     return (
                       <tr key={asset.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="py-3 px-4 text-center">
@@ -301,15 +557,51 @@ export default function AudioPage() {
                             )}
                           </button>
                         </td>
+
                         <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
-                          {asset.name}
+                          <div>
+                            <span>{asset.name}</span>
+                            <p className="font-mono text-[11px] text-slate-400 font-normal truncate max-w-[220px]">
+                              {asset.originalFileName}
+                            </p>
+                          </div>
                         </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 truncate max-w-[180px]">
-                          {asset.originalFileName}
+
+                        <td className="py-3 px-4">
+                          {isYouTube ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900 px-2 py-0.5 rounded">
+                                <Youtube className="h-3 w-3 text-red-600 fill-current" />
+                                <span>YouTube</span>
+                              </span>
+                              {asset.sourceUrl && (
+                                <a
+                                  href={asset.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-slate-400 hover:text-red-600 p-0.5"
+                                  title="Buka video asli di YouTube"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded">
+                              <Upload className="h-3 w-3 text-blue-600" />
+                              <span>File Lokal</span>
+                            </span>
+                          )}
                         </td>
+
+                        <td className="py-3 px-4 font-mono text-slate-500">
+                          {formatSec(asset.durationSec)}
+                        </td>
+
                         <td className="py-3 px-4 font-mono text-slate-500">
                           {formatFileSize(asset.fileSize)}
                         </td>
+
                         <td className="py-3 px-4">
                           {asset.inUse ? (
                             <div className="flex items-center space-x-1">
@@ -322,6 +614,7 @@ export default function AudioPage() {
                             <Badge variant="secondary">Tidak Digunakan</Badge>
                           )}
                         </td>
+
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1">
                             <button
@@ -351,7 +644,7 @@ export default function AudioPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                    <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
                       {isLoading ? "Memuat audio..." : "Belum ada file audio yang tersimpan."}
                     </td>
                   </tr>

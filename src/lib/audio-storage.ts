@@ -10,8 +10,8 @@ if (!fs.existsSync(AUDIO_STORAGE_DIR)) {
   fs.mkdirSync(AUDIO_STORAGE_DIR, { recursive: true });
 }
 
-export const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".ogg"];
-export const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/x-wav"];
+export const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".ogg", ".m4a"];
+export const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/x-wav", "audio/mp4", "audio/x-m4a", "audio/m4a"];
 export const MAX_AUDIO_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 
 export interface AudioValidationResult {

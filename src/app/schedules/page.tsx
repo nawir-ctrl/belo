@@ -22,6 +22,8 @@ import {
   Volume2,
   Calendar,
   AlertTriangle,
+  Youtube,
+  Loader2,
 } from "lucide-react";
 import { BELL_TYPES } from "@/lib/validations/schedule";
 import { DAYS_OF_WEEK_NAMES } from "@/lib/timezone";
@@ -63,6 +65,15 @@ export default function SchedulesPage() {
   // CSV Import Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Quick YouTube Import State
+  const [isYtModalOpen, setIsYtModalOpen] = useState(false);
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytName, setYtName] = useState("");
+  const [isCheckingYt, setIsCheckingYt] = useState(false);
+  const [isDownloadingYt, setIsDownloadingYt] = useState(false);
+  const [ytInfo, setYtInfo] = useState<any | null>(null);
+  const [ytError, setYtError] = useState<string | null>(null);
+
   const fetchSchedules = async () => {
     try {
       const params = new URLSearchParams();
@@ -94,6 +105,64 @@ export default function SchedulesPage() {
         }
       }
     } catch {}
+  };
+
+  const handleCheckYtQuick = async () => {
+    if (!ytUrl.trim()) return;
+    setYtError(null);
+    setIsCheckingYt(true);
+    try {
+      const res = await fetch("/api/audio/youtube/info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: ytUrl.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setYtError(json.error || "Gagal memeriksa video YouTube.");
+      } else {
+        setYtInfo(json.info);
+        if (!ytName) setYtName(json.info.title || "");
+      }
+    } catch {
+      setYtError("Gagal menghubungi server.");
+    } finally {
+      setIsCheckingYt(false);
+    }
+  };
+
+  const handleDownloadYtQuick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ytUrl.trim()) return;
+    setYtError(null);
+    setIsDownloadingYt(true);
+    try {
+      const res = await fetch("/api/audio/youtube/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: ytUrl.trim(),
+          displayName: ytName.trim() || ytInfo?.title || "",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setYtError(json.error || "Gagal mengunduh audio YouTube.");
+      } else {
+        await fetchAudioList();
+        if (json.asset?.id) {
+          setFormAudioId(json.asset.id);
+        }
+        setIsYtModalOpen(false);
+        setYtUrl("");
+        setYtName("");
+        setYtInfo(null);
+      }
+    } catch {
+      setYtError("Gagal mengunduh audio dari YouTube.");
+    } finally {
+      setIsDownloadingYt(false);
+    }
   };
 
   useEffect(() => {
@@ -424,7 +493,11 @@ export default function SchedulesPage() {
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300">
-                            <Volume2 className="h-3.5 w-3.5 text-slate-400" />
+                            {sched.audioAsset?.sourceType === "YOUTUBE" ? (
+                              <Youtube className="h-3.5 w-3.5 text-red-600 shrink-0 fill-current" />
+                            ) : (
+                              <Volume2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            )}
                             <span className="truncate max-w-[120px]">
                               {sched.audioAsset?.name || "Lonceng Bawaan"}
                             </span>
@@ -562,9 +635,25 @@ export default function SchedulesPage() {
             {/* Pilihan Audio MP3 & Volume */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  File Audio Lonceng
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    File Audio Lonceng
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setYtError(null);
+                      setYtInfo(null);
+                      setYtUrl("");
+                      setYtName("");
+                      setIsYtModalOpen(true);
+                    }}
+                    className="text-[11px] text-red-600 hover:text-red-700 font-medium flex items-center gap-1 transition-colors"
+                  >
+                    <Youtube className="h-3 w-3 fill-current" />
+                    <span>+ Dari YouTube</span>
+                  </button>
+                </div>
                 <select
                   value={formAudioId}
                   onChange={(e) => setFormAudioId(e.target.value)}
@@ -572,7 +661,7 @@ export default function SchedulesPage() {
                 >
                   {audioAssets.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {a.sourceType === "YOUTUBE" ? `[YouTube] ${a.name}` : a.name}
                     </option>
                   ))}
                 </select>
@@ -688,6 +777,124 @@ export default function SchedulesPage() {
               </Button>
             </div>
           </div>
+        </Modal>
+
+        {/* Modal Quick Import YouTube */}
+        <Modal
+          isOpen={isYtModalOpen}
+          onClose={() => setIsYtModalOpen(false)}
+          title="Impor Audio dari Link YouTube"
+          maxWidth="md"
+        >
+          <form onSubmit={handleDownloadYtQuick} className="space-y-4">
+            {ytError && (
+              <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-center space-x-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{ytError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Link YouTube
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={ytUrl}
+                    onChange={(e) => {
+                      setYtUrl(e.target.value);
+                      setYtInfo(null);
+                    }}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                  />
+                  <Youtube className="h-4 w-4 text-red-500 absolute left-2.5 top-2.5" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCheckYtQuick}
+                  disabled={!ytUrl.trim() || isCheckingYt || isDownloadingYt}
+                  className="text-xs shrink-0 gap-1"
+                >
+                  {isCheckingYt ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5" />
+                  )}
+                  <span>{isCheckingYt ? "Cek..." : "Cek Video"}</span>
+                </Button>
+              </div>
+            </div>
+
+            {ytInfo && (
+              <div className="p-3 bg-red-50/60 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg flex items-center gap-3">
+                {ytInfo.thumbnailUrl && (
+                  <img
+                    src={ytInfo.thumbnailUrl}
+                    alt="Thumbnail"
+                    className="w-16 h-10 object-cover rounded border border-red-200"
+                  />
+                )}
+                <div className="flex-1 min-w-0 text-xs">
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {ytInfo.title}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Durasi: {ytInfo.durationFormatted}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Nama Tampilan Audio
+              </label>
+              <input
+                type="text"
+                placeholder="Judul otomatis atau nama kustom"
+                value={ytName}
+                onChange={(e) => setYtName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsYtModalOpen(false)}
+                disabled={isDownloadingYt}
+              >
+                Batal
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={!ytUrl.trim() || isDownloadingYt || isCheckingYt}
+                className="gap-2 bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isDownloadingYt ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Mengunduh Audio...</span>
+                  </>
+                ) : (
+                  <>
+                    <Youtube className="h-3.5 w-3.5 fill-current" />
+                    <span>Unduh & Pilih untuk Jadwal</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
         </Modal>
       </div>
     </AppShell>

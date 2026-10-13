@@ -15,6 +15,7 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
+  Calendar,
 } from "lucide-react";
 
 interface BellEvent {
@@ -44,6 +45,10 @@ export default function PlayerPage() {
   const [schoolName, setSchoolName] = useState("SMP Negeri 1 SmartBell");
   const [nextSchedule, setNextSchedule] = useState<any>(null);
   const [countdownSec, setCountdownSec] = useState<number>(0);
+  const [nextUpcomingSchedule, setNextUpcomingSchedule] = useState<any>(null);
+  const [nextUpcomingCountdownSec, setNextUpcomingCountdownSec] = useState<number>(0);
+  const [todayAgenda, setTodayAgenda] = useState<any[]>([]);
+  const [showAgenda, setShowAgenda] = useState(false);
   const [autoplayError, setAutoplayError] = useState<string | null>(null);
 
   const processedEventIdsRef = useRef<Set<string>>(new Set());
@@ -287,6 +292,9 @@ export default function PlayerPage() {
           if (bellData.schoolName) setSchoolName(bellData.schoolName);
           setNextSchedule(bellData.nextSchedule);
           setCountdownSec(bellData.countdownSeconds || 0);
+          setNextUpcomingSchedule(bellData.nextUpcomingSchedule || null);
+          setNextUpcomingCountdownSec(bellData.nextUpcomingCountdownSec || 0);
+          setTodayAgenda(bellData.todayAgenda || []);
         }
       } catch (err) {
         console.warn("Polling error:", err);
@@ -302,6 +310,7 @@ export default function PlayerPage() {
   useEffect(() => {
     const countdownTimer = setInterval(() => {
       setCountdownSec((prev) => (prev > 0 ? prev - 1 : 0));
+      setNextUpcomingCountdownSec((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(countdownTimer);
   }, []);
@@ -431,22 +440,20 @@ export default function PlayerPage() {
 
         {/* Kartu Jadwal Berikutnya & Hitung Mundur */}
         <div className="mt-8 w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-5 backdrop-blur-sm shadow-xl">
-          <div className="flex items-center justify-between">
-            <div className="text-left">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Jadwal Bel Berikutnya
-              </span>
-              <h2 className="text-lg md:text-xl font-bold text-white mt-0.5">
-                {nextSchedule ? nextSchedule.name : "Tidak ada jadwal lagi hari ini"}
-              </h2>
-              {nextSchedule && (
+          {nextSchedule ? (
+            <div className="flex items-center justify-between">
+              <div className="text-left">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+                  Jadwal Bel Berikutnya (Hari Ini)
+                </span>
+                <h2 className="text-lg md:text-xl font-bold text-white mt-0.5">
+                  {nextSchedule.name}
+                </h2>
                 <p className="text-xs text-blue-400 font-mono mt-0.5">
                   Pukul {nextSchedule.time}
                 </p>
-              )}
-            </div>
+              </div>
 
-            {nextSchedule && (
               <div className="text-right">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
                   Hitung Mundur
@@ -455,9 +462,107 @@ export default function PlayerPage() {
                   {formatCountdown(countdownSec)}
                 </span>
               </div>
+            </div>
+          ) : nextUpcomingSchedule ? (
+            <div className="flex items-center justify-between">
+              <div className="text-left">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                  Jadwal Hari Ini Telah Selesai
+                </span>
+                <h2 className="text-lg md:text-xl font-bold text-white mt-0.5">
+                  {nextUpcomingSchedule.name}
+                </h2>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  {nextUpcomingSchedule.dayLabel} • Pukul {nextUpcomingSchedule.time}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
+                  Hitung Mundur
+                </span>
+                <span className="text-xl md:text-2xl font-extrabold font-mono text-amber-300">
+                  {formatCountdown(nextUpcomingCountdownSec)}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+                Status Jadwal
+              </span>
+              <p className="text-base font-semibold text-slate-300 mt-1">
+                Tidak ada jadwal bel aktif hari ini
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Toggle & Daftar Agenda Bel Hari Ini */}
+        {todayAgenda.length > 0 && (
+          <div className="mt-4 w-full max-w-xl">
+            <button
+              onClick={() => setShowAgenda(!showAgenda)}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center gap-1.5 mx-auto py-1.5 px-3 rounded-lg bg-slate-900/60 hover:bg-slate-900 border border-slate-800"
+            >
+              <Calendar className="h-3.5 w-3.5 text-blue-400" />
+              <span>
+                {showAgenda
+                  ? "Sembunyikan Agenda Hari Ini"
+                  : `Lihat Agenda Hari Ini (${todayAgenda.length} Jadwal)`}
+              </span>
+            </button>
+
+            {showAgenda && (
+              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/90 p-3 max-h-56 overflow-y-auto backdrop-blur text-left space-y-1.5 shadow-2xl">
+                {todayAgenda.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors ${
+                      item.status === "SEDANG_BERBUNYI" || item.status === "SEDANG_DIPICU"
+                        ? "bg-blue-950/80 border border-blue-600 text-blue-200 animate-pulse"
+                        : item.status === "SUDAH_BERBUNYI"
+                        ? "bg-slate-950/40 border border-slate-800/80 text-slate-400"
+                        : item.isPast
+                        ? "bg-slate-950/30 text-slate-500"
+                        : "bg-slate-800/40 text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-bold text-blue-400 text-[11px] shrink-0">
+                        {item.time}
+                      </span>
+                      <span className="font-medium truncate">{item.name}</span>
+                    </div>
+
+                    <div className="shrink-0 pl-2">
+                      {item.status === "SUDAH_BERBUNYI" && (
+                        <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-semibold">
+                          Sudah Berbunyi
+                        </span>
+                      )}
+                      {(item.status === "SEDANG_BERBUNYI" || item.status === "SEDANG_DIPICU") && (
+                        <span className="text-[10px] bg-blue-900 text-blue-200 border border-blue-600 px-2 py-0.5 rounded font-semibold animate-pulse">
+                          Sedang Dipicu
+                        </span>
+                      )}
+                      {item.status === "TERLEWAT" && (
+                        <span className="text-[10px] bg-slate-900 text-slate-400 border border-slate-800 px-2 py-0.5 rounded">
+                          Sudah Lewat
+                        </span>
+                      )}
+                      {item.status === "AKAN_DATANG" && (
+                        <span className="text-[10px] bg-blue-950/70 text-blue-300 border border-blue-800 px-2 py-0.5 rounded font-semibold">
+                          Akan Datang
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Footer Controls */}

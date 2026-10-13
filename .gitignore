@@ -17,8 +17,10 @@ data/*.db-wal
 data/*.db-shm
 data/backups/*
 data/audio/*
+data/bin/*
 !data/audio/.gitkeep
 !data/backups/.gitkeep
+!data/bin/.gitkeep
 
 # Environment Files (Rahasia)
 .env

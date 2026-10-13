@@ -56,6 +56,8 @@ model AudioAsset {
   fileSize         Int             // Ukuran file dalam bytes
   mimeType         String          @default("audio/mpeg")
   durationSec      Float?          // Durasi file dalam detik bila terbaca
+  sourceType       String          @default("UPLOAD") // UPLOAD, YOUTUBE
+  sourceUrl        String?         // URL asli jika dari YouTube
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   schedules        BellSchedule[]
