@@ -1,0 +1,29 @@
+[Unit]
+Description=SmartBell Local - Sistem Bel Otomatis Sekolah
+After=network.target sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+# Ganti dengan user linux yang digunakan di komputer sekolah (misal: operator atau administrator)
+User=administrator
+# Ganti path direktori kerja sesuai lokasi clone repositori
+WorkingDirectory=/home/administrator/smartbell
+ExecStart=/usr/bin/node scripts/start-all.js
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=10
+
+# Environment variables
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+
+# Standard output ke systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartbell-local
+
+[Install]
+WantedBy=multi-user.target

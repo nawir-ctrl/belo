@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js Build Output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# SQLite Database & Persistent Storage
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/backups/*
+data/audio/*
+!data/audio/.gitkeep
+!data/backups/.gitkeep
+
+# Environment Files (Rahasia)
+.env
+.env*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local tools wrapper
+powershell.cmd

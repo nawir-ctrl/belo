@@ -1,0 +1,141 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  fullName     String
+  role         String     @default("OPERATOR") // ADMIN, OPERATOR
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model BellSchedule {
+  id                String          @id @default(cuid())
+  name              String
+  time              String          // "07:00", "07:45" (24h HH:mm)
+  daysOfWeek        String          // JSON array e.g. "[1,2,3,4,5,6]" (1=Senin, 7=Minggu)
+  bellType          String          // MASUK, MULAI_PELAJARAN, PERGANTIAN_PELAJARAN, ISTIRAHAT, MASUK_SETELAH_ISTIRAHAT, PERGANTIAN_SESI, PULANG, KHUSUS
+  audioAssetId      String?
+  audioAsset        AudioAsset?     @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  volume            Int             @default(100) // 0-100
+  repeatCount       Int             @default(1)   // 1-5
+  repeatIntervalSec Int             @default(2)   // detik antar-pengulangan
+  isActive          Boolean         @default(true)
+  startDate         String?         // Optional YYYY-MM-DD
+  endDate           String?         // Optional YYYY-MM-DD
+  priority          Int             @default(1)   // Prioritas jadwal (jadwal khusus lebih tinggi)
+  specialPeriodId   String?
+  specialPeriod     SpecialPeriod?  @relation(fields: [specialPeriodId], references: [id], onDelete: Cascade)
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  executions        BellExecution[]
+
+  @@index([isActive])
+  @@index([time])
+  @@map("bell_schedules")
+}
+
+model AudioAsset {
+  id               String          @id @default(cuid())
+  name             String          // Nama tampilan audio
+  originalFileName String          // Nama asli saat upload
+  storedFileName   String          @unique // Nama file aman di folder data/audio
+  fileSize         Int             // Ukuran file dalam bytes
+  mimeType         String          @default("audio/mpeg")
+  durationSec      Float?          // Durasi file dalam detik bila terbaca
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  schedules        BellSchedule[]
+  executions       BellExecution[]
+
+  @@map("audio_assets")
+}
+
+model BellExecution {
+  id                String        @id @default(cuid())
+  scheduleId        String?
+  schedule          BellSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  occurrenceKey     String        @unique // Kunci unik penjamin deduplikasi: SCHED_{id}_{YYYY-MM-DD}_{HH:mm} atau MANUAL_{id}_{timestamp}
+  bellName          String        // Snapshot nama bel
+  bellType          String        // Snapshot jenis bel
+  scheduledFor      DateTime      // Waktu jatuh tempo jadwal
+  triggeredAt       DateTime      @default(now()) // Waktu scheduler memicu event
+  startedAt         DateTime?     // Waktu browser player mulai memutar
+  finishedAt        DateTime?     // Waktu browser player selesai memutar
+  status            String        @default("PENDING") // PENDING, TRIGGERED, PLAYING, PLAYED, FAILED, SKIPPED
+  errorMessage      String?       // Pesan error jika gagal
+  isManual          Boolean       @default(false)     // True jika hasil tombol tes suara / manual
+  audioAssetId      String?
+  audioAsset        AudioAsset?   @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  volume            Int           @default(100)
+  repeatCount       Int           @default(1)
+  repeatIntervalSec Int           @default(2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([isManual])
+  @@map("bell_executions")
+}
+
+model Holiday {
+  id                String   @id @default(cuid())
+  name              String
+  date              String   @unique // Format YYYY-MM-DD
+  isRecurringYearly Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@map("holidays")
+}
+
+model SpecialPeriod {
+  id          String         @id @default(cuid())
+  name        String         // Contoh: "Ujian Akhir Semester", "Bulan Suci Ramadan"
+  startDate   String         // Format YYYY-MM-DD
+  endDate     String         // Format YYYY-MM-DD
+  isActive    Boolean        @default(true)
+  priority    Int            @default(10) // Prioritas lebih tinggi dibanding jadwal reguler (1)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  schedules   BellSchedule[]
+
+  @@map("special_periods")
+}
+
+model SystemSetting {
+  key         String   @id // Contoh: SCHOOL_NAME, TIMEZONE, SCHEDULER_ENABLED, CATCHUP_POLICY, dll
+  value       String
+  category    String   @default("GENERAL") // GENERAL, AUDIO, SCHEDULER, PLAYER
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // CREATE, UPDATE, DELETE, TOGGLE, IMPORT, EXPORT, SOUND_TEST, BACKUP, RESTORE, LOGIN, LOGOUT
+  entityType String   // SCHEDULE, AUDIO, SETTING, USER, SYSTEM
+  entityId   String?
+  details    String?  // JSON detail perubahan
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
