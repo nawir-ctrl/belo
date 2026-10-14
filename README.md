@@ -13,9 +13,10 @@ Aplikasi sistem bel sekolah otomatis modern, tangguh, dan *offline-first* yang b
 5. [Menjalankan Aplikasi](#-menjalankan-aplikasi)
 6. [Halaman Pemutar Bel (`/player`) & Pengaturan Speaker](#-halaman-pemutar-bel-player--pengaturan-speaker)
 7. [Panduan Operasional Harian](#-panduan-operasional-harian)
-8. [Panduan Auto-Start & Kiosk Mode](#-panduan-auto-start--kiosk-mode)
+8. [Panduan Auto-Start, Kiosk Mode & Deployment VPS](#-panduan-auto-start-kiosk-mode--deployment-vps)
    - [Debian / Ubuntu Linux (systemd)](#a-debian--ubuntu-linux-systemd-service)
    - [Windows (Task Scheduler & Batch)](#b-windows-task-scheduler--kiosk-mode)
+   - [Deployment Online di VPS (aaPanel / PM2 / Nginx)](#c-deployment-online-di-vps-aapanel--pm2--reverse-proxy)
 9. [Backup & Pemulihan Data (Restore)](#-backup--pemulihan-data-restore)
 10. [Panduan Troubleshooting](#-panduan-troubleshooting)
 
@@ -212,6 +213,50 @@ Halaman `/player` adalah halaman khusus yang bertugas memutar suara MP3 ke speak
    - Program/script: Arahkan ke `D:\PROJECT\BELO\scripts\windows\start-smartbell.bat`
 3. Membuka Halaman Pemutar Layar Penuh (Kiosk Mode):
    - Gunakan file `scripts/windows/start-kiosk-player.bat` yang akan membuka Chrome/Edge dalam mode `--kiosk` langsung ke `http://127.0.0.1:3000/player`.
+
+### C. Deployment Online di VPS (aaPanel / PM2 / Reverse Proxy)
+
+Jika Anda ingin SmartBell dapat diakses secara online melalui domain/IP publik (misal: `https://bel.sekolah.sch.id`), Anda dapat menjalankannya di VPS Linux menggunakan panel **aaPanel**:
+
+1. **Install Kebutuhan di aaPanel App Store**:
+   - **Nginx** (Web Server & Reverse Proxy).
+   - **Node.js Version Manager** (pilih Node.js v20 LTS).
+   - **PM2 Manager** (Process Manager 24/7).
+   - Install `ffmpeg` di VPS: `sudo apt update && sudo apt install -y ffmpeg` (Debian/Ubuntu) atau `sudo dnf install -y ffmpeg` (CentOS/AlmaLinux).
+
+2. **Clone & Siapkan Repositori di VPS**:
+   ```bash
+   cd /www/wwwroot
+   git clone https://github.com/nawir-ctrl/belo.git belo
+   cd belo
+   cp .env.example .env
+   # Sesuaikan NEXT_PUBLIC_APP_URL dengan domain Anda, JWT_SECRET, dan DEFAULT_TIMEZONE di .env
+   npm install
+   npx prisma db push
+   npx prisma db seed # jika database baru
+   npm run build
+   ```
+
+3. **Jalankan dengan PM2 (Web + Background Scheduler)**:
+   File konfigurasi PM2 telah disediakan di root proyek (`ecosystem.config.cjs`):
+   ```bash
+   pm2 start ecosystem.config.cjs
+   pm2 save
+   pm2 startup
+   ```
+
+4. **Konfigurasi Reverse Proxy & SSL di aaPanel**:
+   - Di aaPanel, masuk ke menu **Website** > **Add site** dengan domain Anda (PHP: *Pure static*).
+   - Klik nama website > buka tab **Reverse Proxy** > **Add reverse proxy**:
+     - Name: `smartbell`
+     - Target URL: `http://127.0.0.1:3000`
+     - Sent Domain: `$host`
+   - Buka tab **SSL** > aktifkan **Let's Encrypt** (Force HTTPS).
+
+5. **Menghubungkan Pemutar Speaker Sekolah**:
+   - Buka browser di komputer sekolah yang tersambung kabel audio/amplifier:
+     `https://bel.sekolah.sch.id/player`
+   - Klik **"Aktifkan Audio"**. Komputer sekolah akan otomatis mendengarkan dan memutar bel sekolah yang dijadwalkan dari cloud!
 
 ---
 

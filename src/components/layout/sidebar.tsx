@@ -13,6 +13,7 @@ import {
   Activity,
   LogOut,
   Volume2,
+  User,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -31,6 +32,7 @@ export function Sidebar({ schoolName = "SmartBell Local", user, onLogout }: Side
     { href: "/history", label: "Riwayat Bel", icon: History },
     { href: "/settings", label: "Pengaturan", icon: Settings },
     { href: "/diagnostics", label: "Diagnostik Sistem", icon: Activity },
+    { href: "/profile", label: "Profil & Akun", icon: User },
   ];
 
   return (
@@ -98,25 +100,29 @@ export function Sidebar({ schoolName = "SmartBell Local", user, onLogout }: Side
 
       {/* User Footer */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-950/40">
-        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60">
-          <div className="flex items-center space-x-2.5 overflow-hidden">
-            <div className="h-8 w-8 rounded-lg bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-200">
+        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 transition-colors">
+          <Link
+            href="/profile"
+            className="flex items-center space-x-2.5 overflow-hidden flex-1 group"
+            title="Buka Pengaturan Profil"
+          >
+            <div className="h-8 w-8 rounded-lg bg-slate-700 group-hover:bg-blue-600 flex items-center justify-center font-bold text-xs text-slate-200 transition-colors shrink-0">
               {user?.fullName?.charAt(0) || "U"}
             </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-slate-200 truncate">
+            <div className="overflow-hidden pr-2">
+              <p className="text-xs font-semibold text-slate-200 truncate group-hover:text-blue-400 transition-colors">
                 {user?.fullName || user?.username || "Operator"}
               </p>
               <p className="text-[10px] text-slate-400 capitalize">
                 {user?.role === "ADMIN" ? "Administrator" : "Operator"}
               </p>
             </div>
-          </div>
+          </Link>
           {onLogout && (
             <button
               onClick={onLogout}
               title="Keluar / Logout"
-              className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 transition-colors"
+              className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 transition-colors shrink-0"
             >
               <LogOut className="h-4 w-4" />
             </button>

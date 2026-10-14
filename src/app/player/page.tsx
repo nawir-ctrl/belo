@@ -148,13 +148,33 @@ export default function PlayerPage() {
 
       setAudioUnlocked(true);
       setAutoplayError(null);
+      return true;
     } catch (err: any) {
-      console.warn("Gagal membuka audio:", err);
-      setAutoplayError(
-        "Browser masih memblokir audio. Silakan klik layar atau tombol di bawah ini."
-      );
+      console.warn("Audio unlock belum diizinkan tanpa interaksi:", err);
+      return false;
     }
   };
+
+  // Coba otomatis unlock audio saat halaman dimuat atau pada interaksi user pertama
+  useEffect(() => {
+    // 1. Coba aktifkan langsung (berhasil jika flag autoplay aktif atau diizinkan di browser)
+    unlockAudio();
+
+    // 2. Fallback: jika browser masih menahan, aktifkan otomatis pada interaksi/klik pertama apapun di layar
+    const handleFirstInteraction = () => {
+      unlockAudio();
+    };
+
+    window.addEventListener("click", handleFirstInteraction, { once: true });
+    window.addEventListener("keydown", handleFirstInteraction, { once: true });
+    window.addEventListener("touchstart", handleFirstInteraction, { once: true });
+
+    return () => {
+      window.removeEventListener("click", handleFirstInteraction);
+      window.removeEventListener("keydown", handleFirstInteraction);
+      window.removeEventListener("touchstart", handleFirstInteraction);
+    };
+  }, []);
 
   // 3. Putar satu event dengan pengulangan (Repeat Count)
   const playEventAudio = async (event: BellEvent) => {
@@ -222,6 +242,7 @@ export default function PlayerPage() {
       audio
         .play()
         .then(() => {
+          setAudioUnlocked(true);
           setAutoplayError(null);
         })
         .catch(async (err) => {

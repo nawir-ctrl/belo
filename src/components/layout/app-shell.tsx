@@ -35,6 +35,14 @@ export function AppShell({ children }: AppShellProps) {
       }
     }
     checkAuth();
+
+    const handleProfileUpdate = () => {
+      checkAuth();
+    };
+    window.addEventListener("user-profile-updated", handleProfileUpdate);
+    return () => {
+      window.removeEventListener("user-profile-updated", handleProfileUpdate);
+    };
   }, [router]);
 
   // 2. Ambil ringkasan sistem secara berkala untuk indikator header
