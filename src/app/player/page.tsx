@@ -32,6 +32,12 @@ interface BellEvent {
     storedFileName: string;
     mimeType: string;
   } | null;
+  audioAssets?: Array<{
+    id: string;
+    name: string;
+    storedFileName: string;
+    mimeType: string;
+  }>;
 }
 
 export default function PlayerPage() {
@@ -155,22 +161,16 @@ export default function PlayerPage() {
     if (!audioElementRef.current) return;
     isPlayingRef.current = true;
     setIsPlaying(true);
-    setCurrentPlayingTitle(event.bellName);
 
-    // Kirim notifikasi status PLAYING ke server
-    try {
-      await fetch(`/api/player/events/${event.id}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "PLAYING" }),
-      });
-    } catch {}
+    // Siapkan playlist urutan suara (mendukung multi-audio)
+    const playlist =
+      event.audioAssets && event.audioAssets.length > 0
+        ? event.audioAssets
+        : event.audioAsset
+        ? [event.audioAsset]
+        : [];
 
-    const audioUrl = event.audioAsset?.id
-      ? `/api/audio/${event.audioAsset.id}/stream`
-      : "";
-
-    if (!audioUrl) {
+    if (playlist.length === 0) {
       // Audio tidak valid
       try {
         await fetch(`/api/player/events/${event.id}/status`, {
@@ -186,15 +186,39 @@ export default function PlayerPage() {
       return;
     }
 
+    // Kirim notifikasi status PLAYING ke server
+    try {
+      await fetch(`/api/player/events/${event.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "PLAYING" }),
+      });
+    } catch {}
+
     const audio = audioElementRef.current;
-    audio.src = audioUrl;
     audio.volume = Math.max(0, Math.min(1, (event.volume ?? volume) / 100));
 
     let currentRepeat = 0;
     const maxRepeats = Math.max(1, event.repeatCount || 1);
     const repeatInterval = Math.max(1, (event.repeatIntervalSec || 2) * 1000);
+    let currentTrackIndex = 0;
 
-    const playCycle = () => {
+    const playCurrentTrack = () => {
+      const track = playlist[currentTrackIndex];
+      if (!track || !track.id) {
+        advanceTrack();
+        return;
+      }
+
+      if (playlist.length > 1) {
+        setCurrentPlayingTitle(
+          `${event.bellName} (${currentTrackIndex + 1}/${playlist.length}: ${track.name})`
+        );
+      } else {
+        setCurrentPlayingTitle(event.bellName);
+      }
+
+      audio.src = `/api/audio/${track.id}/stream`;
       audio
         .play()
         .then(() => {
@@ -202,12 +226,17 @@ export default function PlayerPage() {
         })
         .catch(async (err) => {
           console.error("Autoplay ditolak oleh browser:", err);
-          setAutoplayError("Browser menolak pemutaran otomatis. Klik tombol 'Aktifkan Audio' di layar.");
+          setAutoplayError(
+            "Browser menolak pemutaran otomatis. Klik tombol 'Aktifkan Audio' di layar."
+          );
           try {
             await fetch(`/api/player/events/${event.id}/status`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status: "FAILED", errorMessage: `Autoplay browser ditolak: ${err.message}` }),
+              body: JSON.stringify({
+                status: "FAILED",
+                errorMessage: `Autoplay browser ditolak: ${err.message}`,
+              }),
             });
           } catch {}
           isPlayingRef.current = false;
@@ -217,42 +246,45 @@ export default function PlayerPage() {
         });
     };
 
-    audio.onended = async () => {
-      currentRepeat++;
-      if (currentRepeat < maxRepeats) {
-        setTimeout(playCycle, repeatInterval);
+    const advanceTrack = () => {
+      currentTrackIndex++;
+      if (currentTrackIndex < playlist.length) {
+        // Mainkan suara berikutnya dalam urutan dengan jeda halus (400ms)
+        setTimeout(playCurrentTrack, 400);
       } else {
-        // Selesai seluruh pengulangan! Laporkan status PLAYED
-        try {
-          await fetch(`/api/player/events/${event.id}/status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "PLAYED" }),
-          });
-        } catch {}
-        isPlayingRef.current = false;
-        setIsPlaying(false);
-        setCurrentPlayingTitle(null);
-        processNextQueue();
+        // Seluruh urutan suara dalam satu siklus selesai diputar
+        currentRepeat++;
+        if (currentRepeat < maxRepeats) {
+          currentTrackIndex = 0;
+          setTimeout(playCurrentTrack, repeatInterval);
+        } else {
+          // Selesai seluruh pengulangan! Laporkan status PLAYED
+          try {
+            fetch(`/api/player/events/${event.id}/status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "PLAYED" }),
+            }).catch(() => {});
+          } catch {}
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+          setCurrentPlayingTitle(null);
+          processNextQueue();
+        }
       }
     };
 
-    audio.onerror = async () => {
-      console.error("Kesalahan memuat file audio");
-      try {
-        await fetch(`/api/player/events/${event.id}/status`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "FAILED", errorMessage: "Gagal memuat file media audio." }),
-        });
-      } catch {}
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-      setCurrentPlayingTitle(null);
-      processNextQueue();
+    audio.onended = () => {
+      advanceTrack();
     };
 
-    playCycle();
+    audio.onerror = () => {
+      console.error(`Kesalahan memuat file audio track ke-${currentTrackIndex + 1}`);
+      // Jika salah satu track bermasalah, lanjutkan ke track berikutnya dalam urutan
+      advanceTrack();
+    };
+
+    playCurrentTrack();
   };
 
   const processNextQueue = () => {

@@ -26,6 +26,7 @@ export const scheduleSchema = z.object({
     "KHUSUS",
   ]),
   audioAssetId: z.string().nullable().optional(),
+  audioAssetIds: z.array(z.string()).optional(),
   volume: z.number().min(0, "Volume minimal 0").max(100, "Volume maksimal 100").default(100),
   repeatCount: z.number().min(1, "Pengulangan minimal 1x").max(5, "Pengulangan maksimal 5x").default(1),
   repeatIntervalSec: z.number().min(1, "Jeda minimal 1 detik").max(10, "Jeda maksimal 10 detik").default(2),

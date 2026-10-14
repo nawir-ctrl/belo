@@ -24,6 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         daysOfWeek: original.daysOfWeek,
         bellType: original.bellType,
         audioAssetId: original.audioAssetId,
+        audioAssetIds: original.audioAssetIds,
         volume: original.volume,
         repeatCount: original.repeatCount,
         repeatIntervalSec: original.repeatIntervalSec,

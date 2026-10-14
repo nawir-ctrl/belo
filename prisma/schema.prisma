@@ -29,6 +29,7 @@ model BellSchedule {
   bellType          String          // MASUK, MULAI_PELAJARAN, PERGANTIAN_PELAJARAN, ISTIRAHAT, MASUK_SETELAH_ISTIRAHAT, PERGANTIAN_SESI, PULANG, KHUSUS
   audioAssetId      String?
   audioAsset        AudioAsset?     @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  audioAssetIds     String?         // JSON array AudioAsset IDs misal '["id1","id2"]' untuk urutan suara bel
   volume            Int             @default(100) // 0-100
   repeatCount       Int             @default(1)   // 1-5
   repeatIntervalSec Int             @default(2)   // detik antar-pengulangan
@@ -82,6 +83,7 @@ model BellExecution {
   isManual          Boolean       @default(false)     // True jika hasil tombol tes suara / manual
   audioAssetId      String?
   audioAsset        AudioAsset?   @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  audioAssetIds     String?       // JSON array AudioAsset IDs untuk urutan suara bel
   volume            Int           @default(100)
   repeatCount       Int           @default(1)
   repeatIntervalSec Int           @default(2)

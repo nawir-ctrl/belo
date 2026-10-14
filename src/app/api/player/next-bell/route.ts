@@ -160,6 +160,27 @@ export async function GET() {
       include: { audioAsset: true },
     });
 
+    // Kumpulkan semua asset ID jadwal hari ini untuk nama tampilan
+    const allAssetIds = new Set<string>();
+    for (const s of todaySchedules) {
+      if (s.audioAssetId) allAssetIds.add(s.audioAssetId);
+      if (s.audioAssetIds) {
+        try {
+          const ids = JSON.parse(s.audioAssetIds);
+          if (Array.isArray(ids)) ids.forEach((id) => allAssetIds.add(id));
+        } catch {}
+      }
+    }
+
+    const assetNamesMap = new Map();
+    if (allAssetIds.size > 0) {
+      const fetched = await prisma.audioAsset.findMany({
+        where: { id: { in: Array.from(allAssetIds) } },
+        select: { id: true, name: true },
+      });
+      fetched.forEach((a) => assetNamesMap.set(a.id, a.name));
+    }
+
     // Bangun daftar agenda lengkap hari ini dengan status eksekusinya
     const todayAgenda = todaySchedules.map((s) => {
       const [h, m] = s.time.split(":").map(Number);
@@ -177,6 +198,20 @@ export async function GET() {
         status = "TERLEWAT";
       }
 
+      let sequenceIds: string[] = [];
+      if (s.audioAssetIds) {
+        try {
+          const parsed = JSON.parse(s.audioAssetIds);
+          if (Array.isArray(parsed)) sequenceIds = parsed;
+        } catch {}
+      }
+      if (sequenceIds.length === 0 && s.audioAssetId) sequenceIds = [s.audioAssetId];
+      const audioNames = sequenceIds.map((id) => assetNamesMap.get(id) || "Lonceng").filter(Boolean);
+      const audioDisplayName =
+        audioNames.length > 1
+          ? `${audioNames.length} Suara: ${audioNames.join(" ➔ ")}`
+          : audioNames[0] || s.audioAsset?.name || "Lonceng Bawaan";
+
       return {
         id: s.id,
         name: s.name,
@@ -184,7 +219,8 @@ export async function GET() {
         bellType: s.bellType,
         isPast,
         status,
-        audioName: s.audioAsset?.name || "Lonceng Bawaan",
+        audioCount: audioNames.length,
+        audioName: audioDisplayName,
       };
     });
 

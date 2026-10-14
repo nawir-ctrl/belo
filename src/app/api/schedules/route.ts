@@ -48,7 +48,47 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ schedules: filtered });
+    // Resolve all audioAssets for each schedule
+    const allAssetIds = new Set<string>();
+    for (const s of filtered) {
+      if (s.audioAssetId) allAssetIds.add(s.audioAssetId);
+      if (s.audioAssetIds) {
+        try {
+          const ids = JSON.parse(s.audioAssetIds);
+          if (Array.isArray(ids)) ids.forEach((id) => allAssetIds.add(id));
+        } catch {}
+      }
+    }
+
+    const assetsMap = new Map();
+    if (allAssetIds.size > 0) {
+      const fetched = await prisma.audioAsset.findMany({
+        where: { id: { in: Array.from(allAssetIds) } },
+        select: { id: true, name: true, originalFileName: true, storedFileName: true, sourceType: true },
+      });
+      fetched.forEach((a) => assetsMap.set(a.id, a));
+    }
+
+    const enriched = filtered.map((s) => {
+      let sequenceIds: string[] = [];
+      if (s.audioAssetIds) {
+        try {
+          const parsed = JSON.parse(s.audioAssetIds);
+          if (Array.isArray(parsed)) sequenceIds = parsed;
+        } catch {}
+      }
+      if (sequenceIds.length === 0 && s.audioAssetId) {
+        sequenceIds = [s.audioAssetId];
+      }
+      const audioAssets = sequenceIds.map((id) => assetsMap.get(id)).filter(Boolean);
+
+      return {
+        ...s,
+        audioAssets,
+      };
+    });
+
+    return NextResponse.json({ schedules: enriched });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -64,13 +104,26 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = scheduleSchema.parse(body);
 
+    const audioAssetIdsJson =
+      parsed.audioAssetIds && parsed.audioAssetIds.length > 0
+        ? JSON.stringify(parsed.audioAssetIds)
+        : parsed.audioAssetId
+        ? JSON.stringify([parsed.audioAssetId])
+        : null;
+
+    const primaryAudioId =
+      parsed.audioAssetIds && parsed.audioAssetIds.length > 0
+        ? parsed.audioAssetIds[0]
+        : parsed.audioAssetId || null;
+
     const schedule = await prisma.bellSchedule.create({
       data: {
         name: parsed.name,
         time: parsed.time,
         daysOfWeek: JSON.stringify(parsed.daysOfWeek),
         bellType: parsed.bellType,
-        audioAssetId: parsed.audioAssetId || null,
+        audioAssetId: primaryAudioId,
+        audioAssetIds: audioAssetIdsJson,
         volume: parsed.volume,
         repeatCount: parsed.repeatCount,
         repeatIntervalSec: parsed.repeatIntervalSec,

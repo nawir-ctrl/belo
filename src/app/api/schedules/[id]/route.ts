@@ -17,7 +17,28 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "Jadwal tidak ditemukan." }, { status: 404 });
     }
 
-    return NextResponse.json({ schedule });
+    let sequenceIds: string[] = [];
+    if (schedule.audioAssetIds) {
+      try {
+        const parsed = JSON.parse(schedule.audioAssetIds);
+        if (Array.isArray(parsed)) sequenceIds = parsed;
+      } catch {}
+    }
+    if (sequenceIds.length === 0 && schedule.audioAssetId) {
+      sequenceIds = [schedule.audioAssetId];
+    }
+
+    let audioAssets: any[] = [];
+    if (sequenceIds.length > 0) {
+      const fetched = await prisma.audioAsset.findMany({
+        where: { id: { in: sequenceIds } },
+        select: { id: true, name: true, originalFileName: true, storedFileName: true, sourceType: true },
+      });
+      const map = new Map(fetched.map((a) => [a.id, a]));
+      audioAssets = sequenceIds.map((id) => map.get(id)).filter(Boolean);
+    }
+
+    return NextResponse.json({ schedule: { ...schedule, audioAssets } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -33,6 +54,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const body = await req.json();
     const parsed = scheduleSchema.parse(body);
 
+    const audioAssetIdsJson =
+      parsed.audioAssetIds && parsed.audioAssetIds.length > 0
+        ? JSON.stringify(parsed.audioAssetIds)
+        : parsed.audioAssetId
+        ? JSON.stringify([parsed.audioAssetId])
+        : null;
+
+    const primaryAudioId =
+      parsed.audioAssetIds && parsed.audioAssetIds.length > 0
+        ? parsed.audioAssetIds[0]
+        : parsed.audioAssetId || null;
+
     const updated = await prisma.bellSchedule.update({
       where: { id: params.id },
       data: {
@@ -40,7 +73,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         time: parsed.time,
         daysOfWeek: JSON.stringify(parsed.daysOfWeek),
         bellType: parsed.bellType,
-        audioAssetId: parsed.audioAssetId || null,
+        audioAssetId: primaryAudioId,
+        audioAssetIds: audioAssetIdsJson,
         volume: parsed.volume,
         repeatCount: parsed.repeatCount,
         repeatIntervalSec: parsed.repeatIntervalSec,

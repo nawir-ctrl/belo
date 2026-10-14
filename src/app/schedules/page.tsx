@@ -24,6 +24,8 @@ import {
   AlertTriangle,
   Youtube,
   Loader2,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { BELL_TYPES } from "@/lib/validations/schedule";
 import { DAYS_OF_WEEK_NAMES } from "@/lib/timezone";
@@ -49,6 +51,7 @@ export default function SchedulesPage() {
   const [formDays, setFormDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [formType, setFormType] = useState("MASUK");
   const [formAudioId, setFormAudioId] = useState("");
+  const [formAudioIds, setFormAudioIds] = useState<string[]>([]);
   const [formVolume, setFormVolume] = useState(85);
   const [formRepeatCount, setFormRepeatCount] = useState(1);
   const [formRepeatInterval, setFormRepeatInterval] = useState(2);
@@ -99,9 +102,11 @@ export default function SchedulesPage() {
       const res = await fetch("/api/audio");
       if (res.ok) {
         const json = await res.json();
-        setAudioAssets(json.assets || []);
-        if (json.assets?.length > 0 && !formAudioId) {
-          setFormAudioId(json.assets[0].id);
+        const assets = json.assets || [];
+        setAudioAssets(assets);
+        if (assets.length > 0) {
+          setFormAudioId((prev) => prev || assets[0].id);
+          setFormAudioIds((prev) => (prev.length === 0 ? [assets[0].id] : prev));
         }
       }
     } catch {}
@@ -152,6 +157,7 @@ export default function SchedulesPage() {
         await fetchAudioList();
         if (json.asset?.id) {
           setFormAudioId(json.asset.id);
+          setFormAudioIds((prev) => [...prev.filter(Boolean), json.asset.id]);
         }
         setIsYtModalOpen(false);
         setYtUrl("");
@@ -176,7 +182,9 @@ export default function SchedulesPage() {
     setFormTime("07:00");
     setFormDays([1, 2, 3, 4, 5]);
     setFormType("MASUK");
-    setFormAudioId(audioAssets[0]?.id || "");
+    const defaultAudio = audioAssets[0]?.id || "";
+    setFormAudioId(defaultAudio);
+    setFormAudioIds(defaultAudio ? [defaultAudio] : []);
     setFormVolume(85);
     setFormRepeatCount(1);
     setFormRepeatInterval(2);
@@ -198,7 +206,21 @@ export default function SchedulesPage() {
       setFormDays([1, 2, 3, 4, 5]);
     }
     setFormType(sched.bellType);
-    setFormAudioId(sched.audioAssetId || audioAssets[0]?.id || "");
+
+    let seq: string[] = [];
+    if (sched.audioAssetIds) {
+      try {
+        const parsed = JSON.parse(sched.audioAssetIds);
+        if (Array.isArray(parsed) && parsed.length > 0) seq = parsed;
+      } catch {}
+    }
+    if (seq.length === 0 && (sched.audioAssetId || audioAssets[0]?.id)) {
+      const fallback = sched.audioAssetId || audioAssets[0]?.id;
+      if (fallback) seq = [fallback];
+    }
+    setFormAudioIds(seq);
+    setFormAudioId(seq[0] || sched.audioAssetId || audioAssets[0]?.id || "");
+
     setFormVolume(sched.volume);
     setFormRepeatCount(sched.repeatCount);
     setFormRepeatInterval(sched.repeatIntervalSec);
@@ -220,17 +242,63 @@ export default function SchedulesPage() {
     }
   };
 
+  const addAudioTrack = () => {
+    const fallback = audioAssets[0]?.id || "";
+    if (fallback) {
+      setFormAudioIds((prev) => {
+        const next = [...prev, fallback];
+        setFormAudioId(next[0] || "");
+        return next;
+      });
+    }
+  };
+
+  const removeAudioTrack = (index: number) => {
+    setFormAudioIds((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, i) => i !== index);
+      setFormAudioId(next[0] || "");
+      return next;
+    });
+  };
+
+  const updateAudioTrack = (index: number, newId: string) => {
+    setFormAudioIds((prev) => {
+      const copy = [...prev];
+      copy[index] = newId;
+      setFormAudioId(copy[0] || "");
+      return copy;
+    });
+  };
+
+  const moveAudioTrack = (index: number, direction: "up" | "down") => {
+    setFormAudioIds((prev) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      setFormAudioId(copy[0] || "");
+      return copy;
+    });
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     setIsSaving(true);
+
+    const validIds = formAudioIds.filter(Boolean);
+    const primaryId = validIds[0] || formAudioId || null;
 
     const payload = {
       name: formName.trim(),
       time: formTime,
       daysOfWeek: formDays,
       bellType: formType,
-      audioAssetId: formAudioId || null,
+      audioAssetId: primaryId,
+      audioAssetIds: validIds.length > 0 ? validIds : primaryId ? [primaryId] : [],
       volume: formVolume,
       repeatCount: formRepeatCount,
       repeatIntervalSec: formRepeatInterval,
@@ -492,19 +560,41 @@ export default function SchedulesPage() {
                           </Badge>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300">
-                            {sched.audioAsset?.sourceType === "YOUTUBE" ? (
-                              <Youtube className="h-3.5 w-3.5 text-red-600 shrink-0 fill-current" />
-                            ) : (
-                              <Volume2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                            )}
-                            <span className="truncate max-w-[120px]">
-                              {sched.audioAsset?.name || "Lonceng Bawaan"}
-                            </span>
-                            <span className="text-[10px] font-mono text-slate-400">
-                              ({sched.volume}%)
-                            </span>
-                          </div>
+                          {sched.audioAssets && sched.audioAssets.length > 1 ? (
+                            <div>
+                              <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300 font-medium text-xs">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                                  {sched.audioAssets.length} Suara Berurutan
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  ({sched.volume}%)
+                                </span>
+                              </div>
+                              <p
+                                className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[190px] mt-0.5"
+                                title={sched.audioAssets.map((a: any) => a.name).join(" ➔ ")}
+                              >
+                                {sched.audioAssets.map((a: any) => a.name).join(" ➔ ")}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300">
+                              {sched.audioAsset?.sourceType === "YOUTUBE" ? (
+                                <Youtube className="h-3.5 w-3.5 text-red-600 shrink-0 fill-current" />
+                              ) : (
+                                <Volume2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              )}
+                              <span
+                                className="truncate max-w-[140px]"
+                                title={sched.audioAsset?.name || "Lonceng Bawaan"}
+                              >
+                                {sched.audioAsset?.name || "Lonceng Bawaan"}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-400">
+                                ({sched.volume}%)
+                              </span>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1">
@@ -632,13 +722,18 @@ export default function SchedulesPage() {
               </div>
             </div>
 
-            {/* Pilihan Audio MP3 & Volume */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    File Audio Lonceng
+            {/* Urutan Suara / Playlist Pemutaran Berurutan */}
+            <div className="space-y-2 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Urutan Pemutaran Suara {formAudioIds.length > 1 && `(${formAudioIds.length} Suara Berurutan)`}
                   </label>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Suara akan dimainkan secara berurutan sesuai nomor urut di bawah ini.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -648,25 +743,98 @@ export default function SchedulesPage() {
                       setYtName("");
                       setIsYtModalOpen(true);
                     }}
-                    className="text-[11px] text-red-600 hover:text-red-700 font-medium flex items-center gap-1 transition-colors"
+                    className="text-[11px] text-red-600 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded border border-red-200 bg-red-50 dark:bg-red-950/40 dark:border-red-900"
                   >
                     <Youtube className="h-3 w-3 fill-current" />
                     <span>+ Dari YouTube</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={addAudioTrack}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded border border-blue-200 bg-blue-50 dark:bg-blue-950/40 dark:border-blue-900"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>+ Tambah Suara</span>
+                  </button>
                 </div>
-                <select
-                  value={formAudioId}
-                  onChange={(e) => setFormAudioId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {audioAssets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.sourceType === "YOUTUBE" ? `[YouTube] ${a.name}` : a.name}
-                    </option>
-                  ))}
-                </select>
               </div>
 
+              {/* Daftar Track Audio */}
+              <div className="space-y-2 pt-1">
+                {formAudioIds.length === 0 ? (
+                  <div className="p-3 text-center border border-dashed rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">
+                      Belum ada suara yang dipilih.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={addAudioTrack}
+                      className="text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline"
+                    >
+                      + Tambahkan Suara
+                    </button>
+                  </div>
+                ) : (
+                  formAudioIds.map((audioId, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"
+                    >
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-[10px] font-bold shrink-0">
+                        {idx + 1}
+                      </span>
+                      <select
+                        value={audioId}
+                        onChange={(e) => updateAudioTrack(idx, e.target.value)}
+                        className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-1.5 px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {audioAssets.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.sourceType === "YOUTUBE" ? `[YouTube] ${a.name}` : a.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Kontrol Posisi (Naik / Turun) */}
+                      <div className="flex items-center space-x-0.5">
+                        <button
+                          type="button"
+                          onClick={() => moveAudioTrack(idx, "up")}
+                          disabled={idx === 0}
+                          title="Pindah ke Urutan Sebelumnya"
+                          className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-25 disabled:cursor-not-allowed"
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveAudioTrack(idx, "down")}
+                          disabled={idx === formAudioIds.length - 1}
+                          title="Pindah ke Urutan Berikutnya"
+                          className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-25 disabled:cursor-not-allowed"
+                        >
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Hapus Track */}
+                      <button
+                        type="button"
+                        onClick={() => removeAudioTrack(idx)}
+                        disabled={formAudioIds.length <= 1}
+                        title={formAudioIds.length <= 1 ? "Minimal 1 suara harus dipilih" : "Hapus suara dari urutan"}
+                        className="p-1 rounded text-slate-400 hover:text-rose-600 disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Volume & Pengulangan */}
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Volume ({formVolume}%)
@@ -680,10 +848,7 @@ export default function SchedulesPage() {
                   className="w-full h-2 mt-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 />
               </div>
-            </div>
 
-            {/* Pengulangan (Repeat Count & Interval) */}
-            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Jumlah Pengulangan

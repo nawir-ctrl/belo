@@ -114,7 +114,10 @@ export async function saveAudioFile(
 export async function isAudioInUse(audioAssetId: string): Promise<{ inUse: boolean; schedules: string[] }> {
   const activeSchedules = await prisma.bellSchedule.findMany({
     where: {
-      audioAssetId,
+      OR: [
+        { audioAssetId },
+        { audioAssetIds: { contains: audioAssetId } },
+      ],
       isActive: true,
     },
     select: { name: true, time: true },
