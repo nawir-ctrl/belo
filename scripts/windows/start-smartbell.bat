@@ -12,7 +12,13 @@ echo ================================================================
 
 cd /d "%~dp0\..\.."
 
-:: Jalankan server dan scheduler bersamaan
-call npm run start:all
+:: Jalankan server dan scheduler bersamaan (otomatis gunakan dev jika belum dibuild)
+if exist ".next\BUILD_ID" (
+    echo Menggunakan Mode Produksi...
+    call npm run start:all
+) else (
+    echo Build produksi belum ditemukan, menggunakan Mode Pengembangan (dev:all)...
+    call npm run dev:all
+)
 
 pause

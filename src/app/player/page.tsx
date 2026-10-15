@@ -16,6 +16,7 @@ import {
   Sparkles,
   RefreshCw,
   Calendar,
+  ShieldCheck,
 } from "lucide-react";
 
 interface BellEvent {
@@ -59,7 +60,11 @@ export default function PlayerPage() {
 
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const keepAliveAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const wakeLockRef = useRef<any>(null);
   const isPlayingRef = useRef(false);
+  const isPollingRef = useRef(false);
   const eventQueueRef = useRef<BellEvent[]>([]);
 
   // 1. Inisialisasi Audio Element & Polling Waktu Realtime
@@ -108,6 +113,18 @@ export default function PlayerPage() {
         audioElementRef.current.pause();
         audioElementRef.current = null;
       }
+      if (keepAliveAudioRef.current) {
+        keepAliveAudioRef.current.pause();
+        keepAliveAudioRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
     };
   }, []);
 
@@ -122,28 +139,55 @@ export default function PlayerPage() {
     } catch {}
   };
 
-  // 2. Buka Akses Audio Browser (Unlock Autoplay)
+  // 2. Buka Akses Audio Browser (Unlock Autoplay & Aktifkan Anti-Sleep Keep-Alive)
   const unlockAudio = async () => {
     try {
-      // Buat & mainkan synthetic silent buffer dengan Web Audio API
+      // A. Silent Web Audio API dengan oscillator tak terdengar (Menjaga tab sebagai Media Active)
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioContextClass) {
-        const ctx = new AudioContextClass();
-        const buffer = ctx.createBuffer(1, 1, 22050);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.start(0);
-        if (ctx.state === "suspended") {
-          await ctx.resume();
+        if (!audioContextRef.current) {
+          const ctx = new AudioContextClass();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0.00001; // Tak terdengar sama sekali
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          audioContextRef.current = ctx;
+        }
+        if (audioContextRef.current.state === "suspended") {
+          await audioContextRef.current.resume();
         }
       }
 
-      // Mainkan silent audio pada HTMLAudioElement
+      // B. Continuous HTML5 Silent Audio Loop (Mencegah Chrome/Edge Memory Saver & Sleeping Tabs)
+      if (!keepAliveAudioRef.current) {
+        const ka = new Audio(
+          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+        );
+        ka.loop = true;
+        ka.volume = 0.001; // Sinyal aktif pemutar media ke browser
+        keepAliveAudioRef.current = ka;
+      }
+      try {
+        await keepAliveAudioRef.current.play();
+      } catch {}
+
+      // C. Mainkan silent audio pada HTMLAudioElement utama
       if (audioElementRef.current) {
         audioElementRef.current.src =
           "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         await audioElementRef.current.play();
+      }
+
+      // D. Minta Screen WakeLock agar layar/OS tidak masuk sleep
+      if ("wakeLock" in navigator && !wakeLockRef.current) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+          wakeLockRef.current.addEventListener("release", () => {
+            wakeLockRef.current = null;
+          });
+        } catch {}
       }
 
       setAudioUnlocked(true);
@@ -316,48 +360,135 @@ export default function PlayerPage() {
     }
   };
 
-  // 4. Polling antrean event dan info jadwal berikutnya (setiap 2.5 detik)
-  useEffect(() => {
-    const pollEvents = async () => {
-      try {
-        // A. Ambil event baru
-        const res = await fetch("/api/player/events/poll");
-        if (res.ok) {
-          const data = await res.json();
-          const incomingEvents: BellEvent[] = data.events || [];
+  // 4. Polling antrean event dan info jadwal via Web Worker (Kebal terhadap background tab throttling)
+  const pollEvents = async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
+    try {
+      // A. Ambil event baru (dengan cache: no-store)
+      const res = await fetch("/api/player/events/poll", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const incomingEvents: BellEvent[] = data.events || [];
 
-          for (const ev of incomingEvents) {
-            if (!processedEventIdsRef.current.has(ev.id)) {
-              markEventProcessed(ev.id);
-              if (!isPlayingRef.current && eventQueueRef.current.length === 0) {
-                playEventAudio(ev);
-              } else {
-                eventQueueRef.current.push(ev);
-              }
+        for (const ev of incomingEvents) {
+          if (!processedEventIdsRef.current.has(ev.id)) {
+            markEventProcessed(ev.id);
+            if (!isPlayingRef.current && eventQueueRef.current.length === 0) {
+              playEventAudio(ev);
+            } else {
+              eventQueueRef.current.push(ev);
             }
           }
         }
+      }
 
-        // B. Ambil jadwal berikutnya & nama sekolah
-        const bellRes = await fetch("/api/player/next-bell");
-        if (bellRes.ok) {
-          const bellData = await bellRes.json();
-          if (bellData.schoolName) setSchoolName(bellData.schoolName);
-          setNextSchedule(bellData.nextSchedule);
-          setCountdownSec(bellData.countdownSeconds || 0);
-          setNextUpcomingSchedule(bellData.nextUpcomingSchedule || null);
-          setNextUpcomingCountdownSec(bellData.nextUpcomingCountdownSec || 0);
-          setTodayAgenda(bellData.todayAgenda || []);
+      // B. Ambil jadwal berikutnya & nama sekolah
+      const bellRes = await fetch("/api/player/next-bell", { cache: "no-store" });
+      if (bellRes.ok) {
+        const bellData = await bellRes.json();
+        if (bellData.schoolName) setSchoolName(bellData.schoolName);
+        setNextSchedule(bellData.nextSchedule);
+        setCountdownSec(bellData.countdownSeconds || 0);
+        setNextUpcomingSchedule(bellData.nextUpcomingSchedule || null);
+        setNextUpcomingCountdownSec(bellData.nextUpcomingCountdownSec || 0);
+        setTodayAgenda(bellData.todayAgenda || []);
+      }
+    } catch (err) {
+      console.warn("Polling error:", err);
+    } finally {
+      isPollingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    let worker: Worker | null = null;
+    let fallbackInterval: NodeJS.Timeout | null = null;
+
+    try {
+      const workerBlob = new Blob(
+        [
+          `
+          var timer = null;
+          self.onmessage = function(e) {
+            if (e.data === 'START') {
+              if (timer) clearInterval(timer);
+              timer = setInterval(function() {
+                self.postMessage('TICK');
+              }, 2000);
+            } else if (e.data === 'STOP') {
+              if (timer) {
+                clearInterval(timer);
+                timer = null;
+              }
+            }
+          };
+          `,
+        ],
+        { type: "application/javascript" }
+      );
+      worker = new Worker(URL.createObjectURL(workerBlob));
+
+      worker.onmessage = (e) => {
+        if (e.data === "TICK") {
+          pollEvents();
+          // Pertahankan Web Audio Context & KeepAlive Audio jika sempat suspended
+          if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+            audioContextRef.current.resume().catch(() => {});
+          }
+          if (keepAliveAudioRef.current && keepAliveAudioRef.current.paused && audioUnlocked) {
+            keepAliveAudioRef.current.play().catch(() => {});
+          }
         }
-      } catch (err) {
-        console.warn("Polling error:", err);
+      };
+
+      worker.postMessage("START");
+    } catch (err) {
+      console.warn("Web Worker tidak didukung, menggunakan fallback interval:", err);
+      fallbackInterval = setInterval(pollEvents, 2000);
+    }
+
+    // Eksekusi segera saat mount
+    pollEvents();
+
+    return () => {
+      if (worker) {
+        worker.postMessage("STOP");
+        worker.terminate();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+      }
+    };
+  }, [audioUnlocked]);
+
+  // Listener saat tab kembali ke latar depan (visible/focus)
+  useEffect(() => {
+    const handleReactivate = () => {
+      if (document.visibilityState === "visible") {
+        pollEvents();
+        if ("wakeLock" in navigator && !wakeLockRef.current) {
+          (navigator as any).wakeLock?.request("screen").then((wl: any) => {
+            wakeLockRef.current = wl;
+          }).catch(() => {});
+        }
+        if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+          audioContextRef.current.resume().catch(() => {});
+        }
+        if (keepAliveAudioRef.current && keepAliveAudioRef.current.paused && audioUnlocked) {
+          keepAliveAudioRef.current.play().catch(() => {});
+        }
       }
     };
 
-    pollEvents();
-    const pollInterval = setInterval(pollEvents, 2500);
-    return () => clearInterval(pollInterval);
-  }, []);
+    document.addEventListener("visibilitychange", handleReactivate);
+    window.addEventListener("focus", handleReactivate);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleReactivate);
+      window.removeEventListener("focus", handleReactivate);
+    };
+  }, [audioUnlocked]);
 
   // Update countdown per detik
   useEffect(() => {
@@ -415,8 +546,18 @@ export default function PlayerPage() {
           </div>
         </div>
 
-        {/* Audio Status Pill & Fullscreen */}
-        <div className="flex items-center space-x-3">
+        {/* Audio Status Pill, Anti-Sleep Badge & Fullscreen */}
+        <div className="flex items-center space-x-2.5">
+          {audioUnlocked && (
+            <div
+              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-blue-950/60 text-blue-300 border-blue-800"
+              title="Proteksi anti-sleep aktif: tab dicegah dari pembekuan/tidur di latar belakang oleh browser"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-400" />
+              <span>Anti-Sleep Aktif</span>
+            </div>
+          )}
+
           <div
             className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${
               audioUnlocked

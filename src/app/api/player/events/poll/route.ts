@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { setSetting } from "@/lib/settings";
+import { getSetting, setSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,7 +12,7 @@ export async function GET() {
     await setSetting("LAST_PLAYER_SEEN", now.toISOString(), "PLAYER");
 
     // Ambil event yang berstatus TRIGGERED dan belum dimainkan
-    const events = await prisma.bellExecution.findMany({
+    const rawEvents = await prisma.bellExecution.findMany({
       where: {
         status: "TRIGGERED",
       },
@@ -29,6 +29,30 @@ export async function GET() {
       orderBy: { scheduledFor: "asc" },
       take: 10,
     });
+
+    // Validasi usia event terhadap batas toleransi catch-up (default 5 menit)
+    const catchupMinutes = parseInt(await getSetting("CATCHUP_MAX_MINUTES", "5"), 10);
+    const events: typeof rawEvents = [];
+
+    for (const ev of rawEvents) {
+      if (!ev.isManual && ev.scheduledFor) {
+        const ageMs = now.getTime() - new Date(ev.scheduledFor).getTime();
+        const ageMinutes = ageMs / (1000 * 60);
+
+        if (ageMinutes > catchupMinutes) {
+          // Event kadaluarsa karena player tertidur/mati lebih lama dari toleransi
+          await prisma.bellExecution.update({
+            where: { id: ev.id },
+            data: {
+              status: "SKIPPED",
+              errorMessage: `Dilewati oleh player karena jadwal sudah terlewat ${Math.round(ageMinutes)} menit (batas toleransi: ${catchupMinutes} menit).`,
+            },
+          });
+          continue;
+        }
+      }
+      events.push(ev);
+    }
 
     // Kumpulkan semua asset ID yang dibutuhkan untuk urutan suara
     const allAssetIds = new Set<string>();
